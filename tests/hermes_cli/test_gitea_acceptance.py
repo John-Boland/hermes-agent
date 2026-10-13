@@ -292,6 +292,15 @@ def test_post_merge_approval_is_not_premerge_review():
     assert run(forge, _policy(False))["classification"] == "review"
 
 
+def test_strict_qualification_merge_never_becomes_production():
+    receipt = run(Forge(production=True), _policy(True), require_review=True)
+    assert receipt["ok"] and receipt["qualification_only"] is True
+    assert receipt["merge"]["merged"] and receipt["review"]["commit_id"] == SHA
+    forge = Forge(production=True)
+    forge.rows[REVIEWS] = []
+    assert run(forge, _policy(True), require_review=True)["classification"] == "review"
+
+
 def test_premerge_requires_reviews_but_cannot_be_completion():
     forge = Forge(production=True)
     forge.rows[PR].update(state="open", merged=False, merged_by=None, merge_commit_sha=None)

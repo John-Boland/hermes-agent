@@ -275,10 +275,10 @@ def _state_classification(pr: dict, production: bool) -> str | None:
 
 
 def assess(get, policy: dict, number: int, *, expected_head: str | None = None,
-           custody_ok: bool = False, require_merged: bool = True) -> dict:
+           custody_ok: bool = False, require_merged: bool = True, require_review: bool = False) -> dict:
     """Receipt for PR ``number`` of ``policy['repo']``; ``ok`` only on complete, stable evidence."""
     policy = validate_policy(policy)
-    production = not policy["qualification_only"]
+    production = not policy["qualification_only"] or require_review
     rp = "/repos/" + policy["repo"]
     receipt = {"ok": False, "classification": "missing", "checks": [], "head_sha": None,
                "repo": policy["repo"], "policy_id": policy["policy_id"],
@@ -300,7 +300,7 @@ def assess(get, policy: dict, number: int, *, expected_head: str | None = None,
             return dict(receipt, classification="binding")
         protection_path = f"{rp}/branch_protections/{quote(policy['base'], safe='')}"
         protection = get(protection_path)
-        if not _protection_ok(protection, policy):
+        if not _protection_ok(protection, {**policy, "qualification_only": not production}):
             return dict(receipt, classification="protection")
         runs = _list_runs(get, rp)
         outcomes = _workflow_checks(get, rp, policy, number, sha, runs, receipt)
