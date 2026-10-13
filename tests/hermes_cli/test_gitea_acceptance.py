@@ -65,7 +65,8 @@ def test_real_capture_passes_qualification_and_says_so():
     assert receipt["ok"] and receipt["classification"] == "success"
     assert receipt["qualification_only"] is True and receipt["policy_id"] == "widget-v1"
     assert receipt["checks"] == [{"name": "Rootless CI / rootless-verify (pull_request)", "id": 11, "run_id": 8,
-                                  "run_attempt": 3, "runner_id": 2, "head_sha": SHA, "classification": "success"}]
+                                  "run_attempt": 3, "runner_id": 2, "head_sha": SHA, "classification": "success",
+                                  "completed_at": "2026-10-13T20:28:37Z", "run_completed_at": "2026-10-13T20:28:37Z"}]
     assert "merge" not in receipt and "review" not in receipt
 
 
@@ -290,6 +291,23 @@ def test_post_merge_approval_is_not_premerge_review():
     forge = Forge(production=True)
     forge.rows[REVIEWS][0]["submitted_at"] = "2099-01-01T00:00:00Z"
     assert run(forge, _policy(False))["classification"] == "review"
+
+
+def test_postmerge_ci_cannot_qualify_merge():
+    forge = Forge(production=True)
+    forge.rows[JOBS]["jobs"][0]["completed_at"] = "2099-01-01T00:00:00Z"
+    assert run(forge, _policy(False))["classification"] == "merge"
+
+
+def test_workflow_basename_and_job_identity_must_be_unique():
+    policy = _policy(False)
+    policy["workflows"].append(copy.deepcopy(policy["workflows"][0]))
+    policy["workflows"][1]["path"] = "other/" + policy["workflows"][0]["path"].split("/")[-1]
+    policy["workflows"][1]["jobs"][0]["context"] = "other"
+    with pytest.raises(ValueError): validate_policy(policy)
+    policy = _policy(False)
+    policy["workflows"][0]["jobs"].append(dict(policy["workflows"][0]["jobs"][0], context="other"))
+    with pytest.raises(ValueError): validate_policy(policy)
 
 
 def test_strict_qualification_merge_never_becomes_production():

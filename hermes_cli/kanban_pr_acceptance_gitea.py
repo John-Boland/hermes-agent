@@ -202,7 +202,7 @@ def _clean_checks(checks, sha: str) -> list[dict]:
                 or check.get("head_sha") != sha or check.get("classification") != "success"):
             raise GiteaAcceptanceError("infra", "Positive Gitea receipt has a check not bound to its head.")
         cleaned.append({k: check[k] for k in ("name", "id", "run_id", "run_attempt", "runner_id",
-                                              "head_sha", "classification") if k in check})
+                                              "head_sha", "classification", "completed_at", "run_completed_at") if k in check})
     return cleaned
 
 

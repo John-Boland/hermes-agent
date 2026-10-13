@@ -91,6 +91,8 @@ def validate_policy(policy) -> dict:
         _require(isinstance(jobs, list) and jobs and all(
             isinstance(j, dict) and j.keys() == {"name", "context"}
             and _nonempty_str(j["name"]) and _nonempty_str(j["context"]) for j in jobs))
+        _require(len({j["name"] for j in jobs}) == len(jobs))
+    _require(len({w["path"].split("/")[-1] for w in workflows}) == len(workflows))
     contexts = [j["context"] for w in workflows for j in w["jobs"]]
     _require(len(set(contexts)) == len(contexts))
     return policy
@@ -210,7 +212,9 @@ def _workflow_checks(get, rp, policy, number, sha, runs, receipt) -> list[str] |
             classification = _job_classification(job, run, sha, policy)
             receipt["checks"].append({"name": required["context"], "id": job["id"], "run_id": run["id"],
                                       "run_attempt": run["run_attempt"], "runner_id": job.get("runner_id"),
-                                      "head_sha": sha, "classification": classification})
+                                      "head_sha": sha, "classification": classification,
+                                      "completed_at": job.get("completed_at"),
+                                      "run_completed_at": run.get("completed_at")})
             outcomes.append(classification)
     return outcomes
 
@@ -310,6 +314,11 @@ def assess(get, policy: dict, number: int, *, expected_head: str | None = None,
         if production:
             merge = _merge_provenance(pr, policy)
             if merge is None and require_merged:
+                return dict(receipt, classification="merge")
+            if pr.get("merged") and any(
+                    _timestamp(c.get("completed_at")) > _timestamp(pr.get("merged_at"))
+                    or _timestamp(c.get("run_completed_at")) > _timestamp(pr.get("merged_at"))
+                    for c in receipt["checks"]):
                 return dict(receipt, classification="merge")
             reviews = _list_reviews(get, rp, number)
             review = _independent_approval(reviews, pr, policy, sha)
