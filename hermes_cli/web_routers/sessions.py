@@ -179,12 +179,18 @@ def get_sessions(
     limit: int = Query(20, ge=0, le=100), offset: int = Query(0, ge=0), min_messages: int = 0,
     archived: str = "exclude", order: str = "created", source: str = None, sources: str = None,
     exclude_sources: str = None, cwd_prefix: str = None, full: bool = False,
-    profile: Optional[str] = None):
+    profile: Optional[str] = None, include_pinned: bool = True, read_only: bool = False):
     """List sessions.
 
     ``order=recent`` sorts by latest activity across the compression chain, so
     a long-running chat stays on page one after it auto-compresses onto a fresh
     id.  Rows omit ``system_prompt`` / ``model_config`` unless ``full=1``.
+    ``include_pinned=false`` disables the sidebar's post-page pin backfill:
+    inventory consumers get bounded pages obeying the archive selector, with
+    totals excluding the same hidden rows as the list. Pins still participate
+    normally in the filtered, ordered query; this does not unpin anything.
+    ``read_only=true`` also skips opportunistic auto-archive and writable
+    bootstrap/schema repair. Unavailable stores remain errors, not empty pages.
     """
     if archived not in ("exclude", "only", "include"):
         raise HTTPException(
@@ -193,10 +199,14 @@ def get_sessions(
         raise HTTPException(status_code=400, detail="order must be one of: created, recent")
     profile_name = _cron_profile_home(profile)[0] if profile else None
     try:
-        # Auto-archive is the only write on this GET path: run it on its own
-        # maintenance connection, then open the listing connection read-only.
-        _maybe_auto_archive_for_profile(profile)
-        db = _open_session_db_for_profile(profile, read_only=True)
+        # Inventory callers must not trigger auto-archive or the dashboard's
+        # writable bootstrap/schema-heal fallback. Keep legacy sidebar behavior.
+        if read_only:
+            from hermes_state import SessionDB
+            db = SessionDB(_session_db_path_for_profile(profile), read_only=True)
+        else:
+            _maybe_auto_archive_for_profile(profile)
+            db = _open_session_db_for_profile(profile, read_only=True)
         try:
             min_message_count = max(0, min_messages)
             archived_only = archived == "only"
@@ -219,9 +229,9 @@ def get_sessions(
                 # Skip the system_prompt blob inside SQLite too (pairs with
                 # _strip_session_list_rows below).
                 compact_rows=not full,
-                include_pinned=True,
+                include_pinned=include_pinned,
                 **scope)
-            total = db.session_count(exclude_children=True, **scope)
+            total = db.session_count(exclude_children=True, include_hidden=include_pinned or archived_only, **scope)
             now = time.time()
             row_profile = profile_name or _cron_default_profile()
             for s in sessions:
