@@ -175,12 +175,16 @@ def get_sessions(
     limit: int = Query(20, ge=0, le=100), offset: int = Query(0, ge=0), min_messages: int = 0,
     archived: str = "exclude", order: str = "created", source: str = None, sources: str = None,
     exclude_sources: str = None, cwd_prefix: str = None, full: bool = False,
-    profile: Optional[str] = None):
+    profile: Optional[str] = None, include_pinned: bool = True):
     """List sessions.
 
     ``order=recent`` sorts by latest activity across the compression chain, so
     a long-running chat stays on page one after it auto-compresses onto a fresh
     id.  Rows omit ``system_prompt`` / ``model_config`` unless ``full=1``.
+    ``include_pinned=false`` disables the sidebar's post-page pin backfill:
+    inventory consumers get bounded pages obeying the archive selector, with
+    totals excluding the same hidden rows as the list. Pins still participate
+    normally in the filtered, ordered query; this does not unpin anything.
     """
     if archived not in ("exclude", "only", "include"):
         raise HTTPException(
@@ -213,9 +217,9 @@ def get_sessions(
                 # Skip the system_prompt blob inside SQLite too (pairs with
                 # _strip_session_list_rows below).
                 compact_rows=not full,
-                include_pinned=True,
+                include_pinned=include_pinned,
                 **scope)
-            total = db.session_count(exclude_children=True, **scope)
+            total = db.session_count(exclude_children=True, include_hidden=include_pinned or archived_only, **scope)
             now = time.time()
             row_profile = profile_name or _cron_default_profile()
             for s in sessions:
