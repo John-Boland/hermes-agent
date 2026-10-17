@@ -175,7 +175,7 @@ def get_sessions(
     limit: int = Query(20, ge=0, le=100), offset: int = Query(0, ge=0), min_messages: int = 0,
     archived: str = "exclude", order: str = "created", source: str = None, sources: str = None,
     exclude_sources: str = None, cwd_prefix: str = None, full: bool = False,
-    profile: Optional[str] = None, include_pinned: bool = True):
+    profile: Optional[str] = None, include_pinned: bool = True, read_only: bool = False):
     """List sessions.
 
     ``order=recent`` sorts by latest activity across the compression chain, so
@@ -185,6 +185,8 @@ def get_sessions(
     inventory consumers get bounded pages obeying the archive selector, with
     totals excluding the same hidden rows as the list. Pins still participate
     normally in the filtered, ordered query; this does not unpin anything.
+    ``read_only=true`` also skips opportunistic auto-archive and writable
+    bootstrap/schema repair. Unavailable stores remain errors, not empty pages.
     """
     if archived not in ("exclude", "only", "include"):
         raise HTTPException(
@@ -193,10 +195,14 @@ def get_sessions(
         raise HTTPException(status_code=400, detail="order must be one of: created, recent")
     profile_name = _cron_profile_home(profile)[0] if profile else None
     try:
-        # Auto-archive is the only write on this GET path: run it on its own
-        # maintenance connection, then open the listing connection read-only.
-        _maybe_auto_archive_for_profile(profile)
-        db = _open_session_db_for_profile(profile, read_only=True)
+        # Inventory callers must not trigger auto-archive or the dashboard's
+        # writable bootstrap/schema-heal fallback. Keep legacy sidebar behavior.
+        if read_only:
+            from hermes_state import SessionDB
+            db = SessionDB(_session_db_path_for_profile(profile), read_only=True)
+        else:
+            _maybe_auto_archive_for_profile(profile)
+            db = _open_session_db_for_profile(profile, read_only=True)
         try:
             min_message_count = max(0, min_messages)
             archived_only = archived == "only"
